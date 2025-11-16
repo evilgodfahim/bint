@@ -15,6 +15,7 @@ if sys.stdout.encoding != 'utf-8':
 # ===== CONFIG =====
 TEMP_XML_FILE = "temp.xml"
 FINAL_XML_FILE = "final.xml"
+FINAL_XML_FILE_EXTRA = "final_extra.xml"   # NEW SECOND XML
 LAST_SEEN_FILE = "last_seen_final.json"
 
 # Thresholds
@@ -45,7 +46,6 @@ def normalize_title(title):
     return title.lower()
 
 def parse_xml_date(date_str):
-    # Ensure all dates returned are timezone-aware (UTC)
     try:
         dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %Z")
     except:
@@ -70,8 +70,7 @@ def load_articles_from_temp():
     tree = ET.parse(TEMP_XML_FILE)
     root = tree.getroot()
     articles = []
-    
-    # Calculate 24-hour cutoff
+
     cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
 
     for item in root.findall(".//item"):
@@ -84,8 +83,6 @@ def load_articles_from_temp():
             continue
 
         pub_date = parse_xml_date(pub_date_str)
-
-        # Only include articles from last 24 hours
         if pub_date < cutoff_time:
             continue
 
@@ -170,6 +167,51 @@ def save_last_seen(data):
     with open(LAST_SEEN_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
+# ===== XML WRITING (NEW SHARED FUNCTION) =====
+def write_xml(filename, items):
+    rss = ET.Element("rss", version="2.0")
+    channel = ET.SubElement(rss, "channel")
+    ET.SubElement(channel, "title").text = "ফাহিম চূড়ান্ত সংবাদ ফিড"
+    ET.SubElement(channel, "link").text = "https://evilgodfahim.github.io/"
+    ET.SubElement(channel, "description").text = "একাধিক সূত্র থেকে গুরুত্বপূর্ণ বাংলা সংবাদ"
+    ET.SubElement(channel, "lastBuildDate").text = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+    for item in items:
+        article = item["article"]
+        cluster = item["cluster"]
+        imp = item["importance"]
+
+        xml_item = ET.SubElement(channel, "item")
+        ET.SubElement(xml_item, "title").text = article["title"]
+        ET.SubElement(xml_item, "link").text = article["link"]
+        ET.SubElement(xml_item, "pubDate").text = article["pubDateStr"]
+
+        source_text = f"{article['source']} (+{item['cluster_size'] - 1} টি অন্যান্য সূত্র)" if item['cluster_size'] > 1 else article["source"]
+        ET.SubElement(xml_item, "source").text = source_text
+
+        matched_links = [
+            f"- <a href='{a['link']}'>{a['title']}</a>"
+            for a in cluster
+            if a['title'] != article['title']
+        ]
+
+        if matched_links:
+            matched_text = "<br><b>Matched Titles:</b><br>" + "<br>".join(matched_links)
+        else:
+            matched_text = ""
+
+        desc_html = (
+            f"Score: {imp['score']:.1f} | "
+            f"Appeared in {imp['feed_count']} feeds"
+            f"{matched_text}"
+        )
+
+        ET.SubElement(xml_item, "description").text = f"<![CDATA[{desc_html}]]>"
+
+    tree = ET.ElementTree(rss)
+    ET.indent(tree, space="  ")
+    tree.write(filename, encoding="utf-8", xml_declaration=True)
+
 # ===== MAIN CURATION =====
 def curate_final_feed():
     articles = load_articles_from_temp()
@@ -188,7 +230,7 @@ def curate_final_feed():
             "article": best_article,
             "cluster_size": len(cluster),
             "importance": importance,
-            "cluster": cluster  # full cluster for clickable matched titles
+            "cluster": cluster
         })
 
     print(f"✨ Found {len(important_clusters)} unique Bangla stories")
@@ -197,59 +239,24 @@ def curate_final_feed():
 
     last_seen = load_last_seen()
     new_last_seen = dict(last_seen)
+
     final_articles = []
-
     for item in important_clusters:
-        article = item["article"]
-        if article["link"] not in last_seen:
+        if item["article"]["link"] not in last_seen:
             final_articles.append(item)
-            new_last_seen[article["link"]] = datetime.now(timezone.utc).isoformat()
+            new_last_seen[item["article"]["link"]] = datetime.now(timezone.utc).isoformat()
 
-    rss = ET.Element("rss", version="2.0")
-    channel = ET.SubElement(rss, "channel")
-    ET.SubElement(channel, "title").text = "ফাহিম চূড়ান্ত সংবাদ ফিড"
-    ET.SubElement(channel, "link").text = "https://evilgodfahim.github.io/"
-    ET.SubElement(channel, "description").text = "একাধিক সূত্র থেকে গুরুত্বপূর্ণ বাংলা সংবাদ"
-    ET.SubElement(channel, "lastBuildDate").text = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    # ===== SPLITTING INTO TWO XML FILES (NEW PART) =====
+    first_100 = final_articles[:100]
+    extra = final_articles[100:]
 
-    for item in final_articles:
-        article = item["article"]
-        cluster = item["cluster"]
-        imp = item["importance"]
+    write_xml(FINAL_XML_FILE, first_100)
+    write_xml(FINAL_XML_FILE_EXTRA, extra)
 
-        xml_item = ET.SubElement(channel, "item")
-        ET.SubElement(xml_item, "title").text = article["title"]
-        ET.SubElement(xml_item, "link").text = article["link"]
-        ET.SubElement(xml_item, "pubDate").text = article["pubDateStr"]
-
-        source_text = f"{article['source']} (+{item['cluster_size']-1} টি অন্যান্য সূত্র)" if item['cluster_size'] > 1 else article["source"]
-        ET.SubElement(xml_item, "source").text = source_text
-
-        matched_links = [
-            f"- <a href='{a['link']}'>{a['title']}</a>"
-            for a in cluster
-            if a['title'] != article['title']
-        ]
-        if matched_links:
-            matched_text = "<br><b>Matched Titles:</b><br>" + "<br>".join(matched_links)
-        else:
-            matched_text = ""
-
-        desc_html = (
-            f"Score: {imp['score']:.1f} | "
-            f"Appeared in {imp['feed_count']} feeds"
-            f"{matched_text}"
-        )
-
-        ET.SubElement(xml_item, "description").text = f"<![CDATA[{desc_html}]]>"
-
-    tree = ET.ElementTree(rss)
-    ET.indent(tree, space="  ")
-    tree.write(FINAL_XML_FILE, encoding="utf-8", xml_declaration=True)
     save_last_seen(new_last_seen)
 
-    print(f"\n✅ Final Bangla feed generated: {FINAL_XML_FILE}")
-    print(f"📝 Total stories: {len(final_articles)}")
+    print(f"\n✅ Final feed written: {FINAL_XML_FILE} ({len(first_100)} items)")
+    print(f"✅ Extra feed written: {FINAL_XML_FILE_EXTRA} ({len(extra)} items)")
 
 if __name__ == "__main__":
     try:

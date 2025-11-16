@@ -3,7 +3,6 @@ name: Daily Curation (Stage 2)
 on:
   schedule:
     - cron: '10 3 * * *'
-    - cron: '20 3 * * *'
   workflow_dispatch:
 
 permissions:

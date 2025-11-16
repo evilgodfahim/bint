@@ -50,5 +50,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull --rebase origin main || true
-          git add final.xml last_seen_final.json || true
+          git add final.xml final_extra.xml last_seen_final.json || true
           git diff --staged --quiet && echo "No changes" || (git commit -m "📰 Daily curation: $(date -u +'%Y-%m-%d')" && git push)

@@ -17,4 +17,3 @@ https://politepol.com/fd/DGBCRJxEOkTp.xml
 https://evilgodfahim.github.io/banglanews/world.xml
 https://evilgodfahim.github.io/kalbela/world.xml
 https://evilgodfahim.github.io/samakal/feeds/international.xml
-https://evilgodfahim.github.io/skl/articles.xml

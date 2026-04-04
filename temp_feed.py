@@ -167,6 +167,8 @@ def collect_articles():
                 pub_date = parse_date(entry)
                 if not is_recent(pub_date):
                     continue
+                if "/world/" not in link and "/international/" not in link:
+                    continue
                 source = get_source(entry)
 
                 new_articles.append({
